@@ -48,6 +48,25 @@ export function layoutHasMath(layout) {
 }
 
 /**
+ * A copy of a Plotly layout whose titles are in the all-math form Plotly needs (see mixedToTex). The canvas
+ * plot reads labels as typed instead, and typesets only their $...$ parts.
+ */
+export function texLayout(layout) {
+  const out = { ...layout }
+  for (const key of ['title', 'xaxis', 'yaxis', 'yaxis2']) {
+    const holder = layout[key]
+    if (!holder) continue
+    if (key === 'title') {
+      if (typeof holder.text === 'string') out.title = { ...holder, text: mixedToTex(holder.text) }
+      continue
+    }
+    if (typeof holder.title?.text === 'string')
+      out[key] = { ...holder, title: { ...holder.title, text: mixedToTex(holder.title.text) } }
+  }
+  return out
+}
+
+/**
  * Load MathJax once. Resolves when it is ready for Plotly to use; rejects (and allows a retry later) when
  * the script can't be fetched, e.g. offline — the label then shows as plain text.
  */
@@ -56,7 +75,8 @@ export function loadMathJax() {
   if (loading) return loading
 
   // typeset: false stops MathJax from scanning and rewriting the whole page itself
-  window.MathJax = { startup: { typeset: false } }
+  // fontCache 'none' makes every rendered SVG self-contained, so it can also be drawn onto a canvas as an image
+  window.MathJax = { startup: { typeset: false }, svg: { fontCache: 'none' } }
   loading = new Promise((resolve, reject) => {
     const script = document.createElement('script')
     script.src = SRC

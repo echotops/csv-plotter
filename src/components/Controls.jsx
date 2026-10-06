@@ -509,8 +509,9 @@ export function StylePanel({ opts, patch }) {
           <TextInput value={opts.ylabel} onChange={(ylabel) => patch({ ylabel })} placeholder="auto" />
         </Field>
         <p className="muted hint">
-          LaTeX works between dollar signs, e.g. <code>{'Velocity ($\\frac{m}{s}$)'}</code>. The first use
-          loads MathJax from the internet.
+          Only what is between dollar signs is typeset as LaTeX, e.g. <code>{'Velocity ($\\frac{m}{s}$)'}</code>;
+          the rest keeps the normal font. For the LaTeX font on words, put them inside:{' '}
+          <code>{'$\\text{words}$'}</code>. The first use loads MathJax from the internet.
         </p>
       </Section>
 

@@ -351,7 +351,7 @@ export default function App() {
 
       <footer className="status" title={status}>
         <span className="status-text">{status}</span>
-        <span className="shortcuts">/ files · T theme · [ sidebar</span>
+        <span className="shortcuts">/ files · ← → views · T theme · [ sidebar</span>
       </footer>
       {dragging && <div className="drop-overlay">Drop CSV files to add them</div>}
     </div>

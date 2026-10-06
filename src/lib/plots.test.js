@@ -100,11 +100,11 @@ describe('buildFigure: traces and axes', () => {
       'category',
     )
   })
-  it('sends dates as timezone-less strings so the axis matches the file in any timezone', () => {
+  it('keeps dates as UTC milliseconds so the axis matches the file in any timezone', () => {
     const fig = buildFigure(table, opts({ x: 'stamp', traces: [tr('chamber_psi')] }))
     const x = fig.data[0].x
-    expect(x[0]).toBe('2026-10-03 14:00:00.000')
-    expect(x[90]).toBe('2026-10-03 14:01:30.000')
+    expect(x[0]).toBe(Date.UTC(2026, 9, 3, 14, 0, 0))
+    expect(x[90]).toBe(Date.UTC(2026, 9, 3, 14, 1, 30))
   })
   it('applies log scales and axis limits (log limits become log10 ranges)', () => {
     const fig = buildFigure(

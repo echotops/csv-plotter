@@ -2,7 +2,6 @@ import { decimateIdx, finiteOnly, fmtCell, normalize, take } from './data'
 import { applyFilter, estimateFs, FilterError } from './filters'
 import { normalizeColor } from './color'
 import { evaluateColumn } from './expression'
-import { mixedToTex } from './mathjax'
 import { AXIS2_KINDS, CUSTOM, FILTER_KINDS, INDEX, NONE } from './types'
 
 // Trace palettes. Dark: the accent blue plus the Tokyo-Night-style hues echotops already defines
@@ -117,12 +116,8 @@ const rgba = (hex, a) => {
   return `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, ${a})`
 }
 
-/** Plotly renders numeric dates in the viewer's timezone; timezone-less strings show exactly what the file says. */
-export const timeStrings = (ms) =>
-  Array.from(ms, (v) => new Date(v).toISOString().slice(0, 23).replace('T', ' '))
-
-const xOut = (xi, px) =>
-  xi.kind === 'cat' ? Array.from(px, (v) => xi.labels[v]) : xi.kind === 'time' ? timeStrings(px) : px
+// Timestamps stay as milliseconds since 1970; the canvas plot shows them as UTC, i.e. exactly what the file says.
+const xOut = (xi, px) => (xi.kind === 'cat' ? Array.from(px, (v) => xi.labels[v]) : px)
 
 // A trace's color is whatever the user picked for it, falling back to the palette slot it sits in.
 export const colorOf = (o, slot) =>
@@ -787,13 +782,6 @@ function resolveFormulas(table, o, notes) {
   return { table: derived, opts: { ...o, x, traces } }
 }
 
-// Title and axis labels may contain LaTeX ($...$); give Plotly each in the all-math form it typesets correctly.
-function texLabels(layout) {
-  for (const holder of [layout, layout.xaxis, layout.yaxis, layout.yaxis2]) {
-    if (typeof holder?.title?.text === 'string') holder.title.text = mixedToTex(holder.title.text)
-  }
-}
-
 export function buildFigure(rawTable, rawOpts) {
   if (!rawTable) return empty('Choose a CSV file from the drop-down above')
   const notes = []
@@ -810,6 +798,5 @@ export function buildFigure(rawTable, rawOpts) {
   const formulaError = notes.find((n) => /^Trace formula:/.test(n)) ?? notes.find((n) => /formula:/.test(n))
   if (fig.message && formulaError) fig.message = formulaError
 
-  texLabels(fig.layout)
-  return { ...fig, notes }
+  return { ...fig, notes, kind: o.kind, theme: o.theme }
 }

@@ -233,7 +233,13 @@ input[type='checkbox'] { accent-color: var(--accent); }
 
 .plot-wrap { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .plot-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 8px 12px 0; min-height: 36px; }
-.reset-view { margin-left: auto; }
+.plot-tools { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.seg { display: inline-flex; }
+.seg .btn { border-radius: 0; }
+.seg .btn:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+.seg .btn:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; border-left-width: 0; }
+.btn.on { color: var(--accent); border-color: var(--accent); background: var(--accent-dim); }
+.seg .btn.on:last-child { border-left-width: 1px; margin-left: -1px; }
 .chip {
   font: inherit; font-size: 12px; cursor: pointer; color: var(--accent); background: var(--accent-dim);
   background: color-mix(in srgb, var(--accent) 14%, transparent); border: 1px solid var(--accent);
@@ -241,13 +247,14 @@ input[type='checkbox'] { accent-color: var(--accent); }
 }
 .chip:hover { background: color-mix(in srgb, var(--accent) 28%, transparent); }
 .plot-area { position: relative; flex: 1; min-height: 0; }
-.plot { position: absolute; inset: 0; transition: opacity 0.3s ease; }
+.plot, .canvas-wrap { position: absolute; inset: 0; transition: opacity 0.3s ease; }
+.canvas-wrap canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 .plot-message {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   color: var(--secondary); font-size: 16px; pointer-events: none; text-align: center; padding: 20px;
 }
 /* when the last good plot is still showing, the message becomes a banner over it */
-.plot-wrap.stale .plot { opacity: 0.3; }
+.plot-wrap.stale .plot, .plot-wrap.stale .canvas-wrap { opacity: 0.3; }
 .plot-wrap.stale .plot-message {
   inset: 12px 12px auto 12px; justify-content: flex-start; font-size: 13px; color: var(--error);
   background: var(--surface); border: 1px solid var(--error); border-radius: var(--radius-md); padding: 8px 12px; text-align: left;

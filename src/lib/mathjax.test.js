@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { hasMath, layoutHasMath, mixedToTex } from './mathjax'
+import { hasMath, layoutHasMath, mixedToTex, texLayout } from './mathjax'
 
 describe('hasMath', () => {
   it('finds $...$ spans', () => {
@@ -38,5 +38,23 @@ describe('mixedToTex', () => {
   it('leaves labels without math alone', () => {
     expect(mixedToTex('thrust (N)')).toBe('thrust (N)')
     expect(mixedToTex('Cost: 5$')).toBe('Cost: 5$')
+  })
+})
+
+describe('texLayout', () => {
+  it('converts every title without touching the original', () => {
+    const layout = {
+      title: { text: 'a $b$', font: { size: 15 } },
+      xaxis: { title: { text: 'x' }, showgrid: true },
+      yaxis: { title: { text: 'v ($m$)' } },
+      yaxis2: { title: { text: '$q$' } },
+    }
+    const out = texLayout(layout)
+    expect(out.title).toEqual({ text: '$\\text{a }b$', font: { size: 15 } })
+    expect(out.xaxis).toEqual({ title: { text: 'x' }, showgrid: true })
+    expect(out.yaxis.title.text).toBe('$\\text{v (}m\\text{)}$')
+    expect(out.yaxis2.title.text).toBe('$q$')
+    expect(layout.title.text).toBe('a $b$')
+    expect(texLayout({})).toEqual({})
   })
 })
