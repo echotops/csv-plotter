@@ -5,6 +5,10 @@ import { cssEase, fadeMs } from '../plot/ease'
 import { ViewHistory } from '../plot/history'
 import { createMath } from '../plot/math'
 
+// How far up the y axis (0 at its low end, 1 at its high end) a pixel row is. A heatmap's y axis runs
+// downwards, with its first row at the top.
+const yFrac = (geo, y) => (geo.flipY ? 1 : 0) + (geo.flipY ? -1 : 1) * (1 - (y - geo.plot.y) / geo.plot.h)
+
 // A box-zoom drag shorter than this (px) in one direction zooms only along the other, like Plotly.
 const MIN_BOX = 20
 
@@ -219,7 +223,7 @@ export const CanvasPlot = forwardRef(function CanvasPlot({ chart, mode, active =
       const rect = el.getBoundingClientRect()
       const x = e.clientX - rect.left
       const y = e.clientY - rect.top
-      const where = regionAt(s.geo, x, y)
+      const where = s.chart.kind === 'matrix' ? null : regionAt(s.geo, x, y)
       if (!where) return
       e.preventDefault()
       const lines = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1
@@ -229,9 +233,9 @@ export const CanvasPlot = forwardRef(function CanvasPlot({ chart, mode, active =
       const both = where === 'plot'
       if (where === 'x' || both) next.x = zoomRange(xs.type, ranges.x, factor, (x - plot.x) / plot.w)
       if (where === 'y' || (both && !e.shiftKey))
-        next.y = zoomRange(ys.type, ranges.y, factor, 1 - (y - plot.y) / plot.h)
+        next.y = zoomRange(ys.type, ranges.y, factor, yFrac(s.geo, y))
       if (y2s && (where === 'y2' || (both && !e.shiftKey)))
-        next.y2 = zoomRange(y2s.type, ranges.y2, factor, 1 - (y - plot.y) / plot.h)
+        next.y2 = zoomRange(y2s.type, ranges.y2, factor, yFrac(s.geo, y))
       s.view = next
       s.history.record(next, { merge: true }) // the steps of one scroll gesture count as one view
       schedule()
@@ -244,7 +248,7 @@ export const CanvasPlot = forwardRef(function CanvasPlot({ chart, mode, active =
   useEffect(() => {
     const onKey = (e) => {
       const s = state.current
-      if (!s.active || s.drag || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return
+      if (!s.active || s.drag || s.chart.kind === 'matrix' || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return
       if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
       const t = e.target
       if (t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName))) return
@@ -267,7 +271,7 @@ export const CanvasPlot = forwardRef(function CanvasPlot({ chart, mode, active =
     const s = state.current
     if (e.button !== 0 && e.button !== 1) return
     const { x, y } = local(e)
-    const where = regionAt(s.geo, x, y)
+    const where = s.chart.kind === 'matrix' ? null : regionAt(s.geo, x, y)
     if (!where) return
     const panning = e.button === 1 || where !== 'plot' || s.mode === 'pan' || e.shiftKey || e.pointerType === 'touch'
     s.drag = {
@@ -294,7 +298,7 @@ export const CanvasPlot = forwardRef(function CanvasPlot({ chart, mode, active =
     const d = s.drag
     if (!d) {
       s.hover = { x, y }
-      const where = regionAt(s.geo, x, y)
+      const where = s.chart.kind === 'matrix' ? null : regionAt(s.geo, x, y)
       canvas.current.style.cursor =
         where === 'plot' ? (s.mode === 'pan' ? 'grab' : 'crosshair') : where === 'x' ? 'ew-resize' : where ? 'ns-resize' : 'default'
       schedule()
@@ -307,8 +311,8 @@ export const CanvasPlot = forwardRef(function CanvasPlot({ chart, mode, active =
       const next = { ...s.view }
       if (d.where !== 'y' && d.where !== 'y2') next.x = panRange(xs.type, d.ranges.x, -(x - d.x0) / plot.w)
       if (d.where !== 'x') {
-        if (d.where !== 'y2') next.y = panRange(ys.type, d.ranges.y, (y - d.y0) / plot.h)
-        if (y2s && d.where !== 'y') next.y2 = panRange(y2s.type, d.ranges.y2, (y - d.y0) / plot.h)
+        if (d.where !== 'y2') next.y = panRange(ys.type, d.ranges.y, (y - d.y0) / plot.h * (s.geo.flipY ? -1 : 1))
+        if (y2s && d.where !== 'y') next.y2 = panRange(y2s.type, d.ranges.y2, (y - d.y0) / plot.h * (s.geo.flipY ? -1 : 1))
       }
       s.view = next
       canvas.current.style.cursor = 'grabbing'
@@ -321,7 +325,11 @@ export const CanvasPlot = forwardRef(function CanvasPlot({ chart, mode, active =
     const d = s.drag
     if (!d) return
     s.drag = null
-    canvas.current.releasePointerCapture?.(e.pointerId)
+    try {
+      canvas.current.releasePointerCapture?.(e.pointerId)
+    } catch {
+      // the capture was already gone
+    }
     if (d.kind === 'pan') s.history.record(s.view)
     if (d.kind === 'box' && s.geo) {
       const { plot, xs, ys, y2s } = s.geo
@@ -330,8 +338,8 @@ export const CanvasPlot = forwardRef(function CanvasPlot({ chart, mode, active =
       const next = { ...s.view }
       if (useX) next.x = subRange(xs.type, d.ranges.x, clamp((box.x0 - plot.x) / plot.w), clamp((box.x1 - plot.x) / plot.w))
       if (useY) {
-        const f0 = clamp(1 - (box.y0 - plot.y) / plot.h)
-        const f1 = clamp(1 - (box.y1 - plot.y) / plot.h)
+        const f0 = clamp(yFrac(s.geo, box.y0))
+        const f1 = clamp(yFrac(s.geo, box.y1))
         next.y = subRange(ys.type, d.ranges.y, f0, f1)
         if (y2s) next.y2 = subRange(y2s.type, d.ranges.y2, f0, f1)
       }
@@ -341,7 +349,7 @@ export const CanvasPlot = forwardRef(function CanvasPlot({ chart, mode, active =
     schedule()
   }
 
-  const label = [chart.title, ...chart.series.filter((s) => s.inLegend).map((s) => s.name)].filter(Boolean).join(': ')
+  const label = [chart.title, ...(chart.series ?? []).filter((s) => s.inLegend).map((s) => s.name)].filter(Boolean).join(': ')
 
   return (
     <div ref={wrap} className="canvas-wrap">

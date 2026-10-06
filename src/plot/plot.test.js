@@ -9,6 +9,7 @@ import { cssEase } from './ease'
 import { sameView, ViewHistory } from './history'
 import { findHover, isAscending, lowerBound, nearestIndex } from './hover'
 import { splitRuns } from './math'
+import { boxStats, density } from './stats'
 import { formatLinear, linearTicks, logTicks, niceStep, timeTicks } from './ticks'
 
 describe('linear ticks', () => {
@@ -321,5 +322,101 @@ describe('view history', () => {
     h.reset()
     expect(h.canBack || h.canForward).toBe(false)
     expect(h.current).toEqual({})
+  })
+})
+
+describe('box and density statistics', () => {
+  it('computes quartiles, whiskers and outliers by the 1.5 x IQR rule', () => {
+    const values = [1, 2, 3, 4, 5, 6, 7, 8, 9, 100]
+    const b = boxStats(values)
+    expect(b.q1).toBeCloseTo(3.25, 9)
+    expect(b.median).toBe(5.5)
+    expect(b.q3).toBeCloseTo(7.75, 9)
+    expect(b.hi).toBe(9) // 100 is past q3 + 1.5 * IQR = 14.5
+    expect(b.lo).toBe(1)
+    expect(Array.from(b.outliers)).toEqual([100])
+    expect(b.mean).toBeCloseTo(14.5, 9)
+    expect([b.n, b.min, b.max]).toEqual([10, 1, 100])
+  })
+  it('has no outliers for tidy data and handles one value', () => {
+    expect(boxStats([1, 2, 3, 4, 5]).outliers).toHaveLength(0)
+    const one = boxStats([7])
+    expect([one.q1, one.median, one.q3, one.lo, one.hi]).toEqual([7, 7, 7, 7, 7])
+  })
+  it('makes a density that peaks at 1 near the middle of the data and covers its range', () => {
+    const values = Array.from({ length: 500 }, (_, i) => Math.sin(i * 12.9898) * 2 + 10)
+    const d = density(values)
+    expect(d.ys).toHaveLength(100)
+    expect(Math.max(...d.dens)).toBe(1)
+    const peak = d.ys[d.dens.indexOf(1)]
+    expect(Math.abs(peak - 10)).toBeLessThan(2)
+    expect(d.ys[0]).toBeLessThan(Math.min(...values))
+    expect(d.ys[99]).toBeGreaterThan(Math.max(...values))
+  })
+  it('copes with identical values', () => {
+    const d = density([5, 5, 5, 5])
+    expect(Number.isFinite(d.bw)).toBe(true)
+    expect(Math.max(...d.dens)).toBe(1)
+  })
+})
+
+describe('chartFromFigure: distributions, heatmaps and the matrix', () => {
+  const rows = ['a,b,c,d,label']
+  for (let i = 0; i < 300; i++)
+    rows.push(`${Math.sin(i * 1.7) * 3 + 10},${Math.cos(i * 0.9) * 5},${i % 50},${(i * 7) % 13},${i % 2 ? 'odd' : 'even'}`)
+  const table = parseCsv(rows.join('\n'), 'dist.csv')
+  const tr = (col) => ({ col, side: 'L' })
+  const make = (o) => chartFromFigure(buildFigure(table, { ...DEFAULT_OPTS, ...o }))
+
+  it('histogram bars carry their own width and are not grouped', () => {
+    const c = make({ kind: 'Histogram', traces: [tr('a'), tr('b')], bins: 10 })
+    expect(c.series).toHaveLength(2)
+    expect(c.series.every((s) => s.mode === 'bars' && s.barWidth > 0 && s.slots === 1)).toBe(true)
+    expect(c.series[0].x).toHaveLength(10)
+    expect(c.y.title).toBe('count')
+  })
+  it('ECDF is a stepped line', () => {
+    const c = make({ kind: 'ECDF', traces: [tr('a')] })
+    expect(c.series[0].step).toBe(true)
+    expect(c.series[0].sorted).toBe(true)
+    expect(c.y.title).toBe('cumulative fraction')
+  })
+  it('box and violin make one labelled group per trace, with their statistics', () => {
+    for (const kind of ['Box', 'Violin']) {
+      const c = make({ kind, traces: [tr('a'), tr('b')] })
+      expect(c.legend).toBe(false)
+      expect(c.x.type).toBe('category')
+      expect(c.x.ticks.labels).toEqual(['a', 'b'])
+      expect(c.series.map((s) => s.mode)).toEqual([kind.toLowerCase(), kind.toLowerCase()])
+      expect(c.series[1].stats.median).toBeCloseTo(c.series[1].readout.find(([n]) => n === 'median')[1], 12)
+      expect(Array.from(c.series[1].x).every((v) => v === 1)).toBe(true)
+    }
+    expect(make({ kind: 'Violin', traces: [tr('a')] }).series[0].profile.ys).toHaveLength(100)
+  })
+  it('the 2D histogram is a numeric grid with a count color bar', () => {
+    const c = make({ kind: '2D histogram', x: 'a', traces: [tr('b')], bins: 8 })
+    const g = c.series[0].grid
+    expect([g.nx, g.ny]).toEqual([8, 8])
+    expect(c.hover).toBe('cell')
+    expect(c.colorbar.title).toBe('count')
+    expect(Array.from(g.z).reduce((a, v) => a + (Number.isFinite(v) ? v : 0), 0)).toBe(300)
+    expect(Array.from(g.z).some(Number.isNaN)).toBe(true) // empty bins are left blank
+  })
+  it('the correlation heatmap is a labelled square with the first row on top', () => {
+    const c = make({ kind: 'Correlation heatmap', traces: [tr('a'), tr('b'), tr('c')] })
+    const g = c.series[0].grid
+    expect(g.xLabels).toEqual(['a', 'b', 'c'])
+    expect(c.y.reversed).toBe(true)
+    expect([c.colorbar.cmin, c.colorbar.cmax]).toEqual([-1, 1])
+    expect(g.z[0]).toBeCloseTo(1, 9)
+    expect(g.z[1]).toBeCloseTo(g.z[3], 12) // symmetric
+    expect(g.showText).toBe(true)
+  })
+  it('the scatter matrix keeps one array per column', () => {
+    const c = make({ kind: 'Scatter matrix', traces: [tr('a'), tr('b'), tr('c')] })
+    expect(c.kind).toBe('matrix')
+    expect(c.labels).toEqual(['a', 'b', 'c'])
+    expect(c.columns).toHaveLength(3)
+    expect(c.columns[0]).toBeInstanceOf(Float64Array)
   })
 })

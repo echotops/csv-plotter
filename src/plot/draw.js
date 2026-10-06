@@ -2,10 +2,11 @@ import { fmtNum, fmtTime } from '../lib/data'
 import { autoRange, makeScale } from './axis'
 import { scaleTable } from './colormap'
 import { findHover, lowerBound } from './hover'
-import { splitRuns } from './math'
+import { drawMatrixBase, drawMatrixHover } from './matrix'
+import { drawCard, label, measure, TICK } from './text'
+import { drawBox, drawHeatmap, drawViolin, heatmapCellAt } from './shapes'
 import { formatLinear, linearTicks, logTicks, timeTicks } from './ticks'
 
-const TICK = 12
 const AXIS_TITLE = 12
 const TITLE = 15
 
@@ -32,8 +33,9 @@ function fit(chart) {
       const x = s.x[i]
       const y = s.y[i]
       if (!Number.isFinite(x) || !Number.isFinite(y) || (xLog && x <= 0) || (yLog && y <= 0)) continue
-      if (x < ext.x[0]) ext.x[0] = x
-      if (x > ext.x[1]) ext.x[1] = x
+      const half = s.barWidth / 2 // a histogram bar reaches half its width past its center
+      if (x - half < ext.x[0]) ext.x[0] = x - half
+      if (x + half > ext.x[1]) ext.x[1] = x + half
       if (y < ye[0]) ye[0] = y
       if (y > ye[1]) ye[1] = y
     }
@@ -46,7 +48,7 @@ function fit(chart) {
   const pad = chart.x.pad
   const result = {
     x: autoRange(scaleType(chart.x), ext.x[0] - pad, ext.x[1] + pad, 0),
-    y: autoRange(scaleType(chart.y), ext.y[0], ext.y[1], 0.05),
+    y: autoRange(scaleType(chart.y), ext.y[0], ext.y[1], chart.y.margin ?? 0.05),
     y2: chart.y2 ? autoRange(scaleType(chart.y2), ext.y2[0], ext.y2[1], 0.05) : null,
   }
   fits.set(chart, result)
@@ -78,51 +80,6 @@ function axisTicks(axis, [lo, hi], target) {
   if (axis.type === 'time') return timeTicks(lo, hi, target)
   const t = linearTicks(lo, hi, target)
   return { vals: t.vals, labels: formatLinear(t.vals, t.step) }
-}
-
-// --- text -----------------------------------------------------------------------------------------------
-
-const fontOf = (env, size, weight = 400) => `${weight} ${size}px ${env.font}`
-
-// A label becomes runs of ordinary text and typeset math, each with its width; a math run that isn't ready yet
-// (or failed to load) is drawn as its plain TeX.
-function runsOf(ctx, env, text, size, color, weight = 400) {
-  ctx.font = fontOf(env, size, weight)
-  return splitRuns(text).map((run) => {
-    if (run.tex !== undefined) {
-      const m = env.math.get(run.tex, color, size)
-      if (m) return { m, w: m.w, h: m.h }
-      ctx.font = fontOf(env, size, weight)
-      return { text: run.tex, w: ctx.measureText(run.tex).width, h: size }
-    }
-    return { text: run.text, w: ctx.measureText(run.text).width, h: size }
-  })
-}
-
-function measure(ctx, env, text, size, color) {
-  const runs = runsOf(ctx, env, text, size, color)
-  return { w: runs.reduce((sum, r) => sum + r.w, 0), h: Math.max(size, ...runs.map((r) => r.h)) }
-}
-
-// Draws a label anchored at (x, y); `align` is the horizontal anchor, and the text is vertically centered.
-function label(ctx, env, text, x, y, { size = TICK, color, align = 'left', rotate = 0, weight = 400 }) {
-  const runs = runsOf(ctx, env, text, size, color, weight)
-  const total = runs.reduce((sum, r) => sum + r.w, 0)
-  const baseline = size * 0.35 // text is centered on y; this puts its baseline there
-  ctx.save()
-  ctx.translate(x, y)
-  if (rotate) ctx.rotate(rotate)
-  let at = align === 'center' ? -total / 2 : align === 'right' ? -total : 0
-  ctx.font = fontOf(env, size, weight)
-  ctx.fillStyle = color
-  ctx.textAlign = 'left'
-  ctx.textBaseline = 'alphabetic'
-  for (const r of runs) {
-    if (r.m) ctx.drawImage(r.m.img, at, baseline + r.m.descent - r.m.h, r.m.w, r.m.h)
-    else ctx.fillText(r.text, at, baseline)
-    at += r.w
-  }
-  ctx.restore()
 }
 
 // --- layout ---------------------------------------------------------------------------------------------
@@ -164,10 +121,12 @@ function computeGeometry(ctx, env, chart, w, h, ranges) {
   y2t = chart.y2 ? axisTicks(chart.y2, ranges.y2, yTarget(plotH)) : null
 
   const plot = { x: left, y: top, w: plotW, h: plotH }
+  const flipY = Boolean(chart.y.reversed) // heatmaps list their first row at the top
   return {
     plot,
+    flipY,
     xs: makeScale(scaleType(chart.x), ranges.x[0], ranges.x[1], plot.x, plot.x + plot.w),
-    ys: makeScale(scaleType(chart.y), ranges.y[0], ranges.y[1], plot.y + plot.h, plot.y),
+    ys: makeScale(scaleType(chart.y), ranges.y[0], ranges.y[1], flipY ? plot.y : plot.y + plot.h, flipY ? plot.y + plot.h : plot.y),
     y2s: chart.y2 ? makeScale(scaleType(chart.y2), ranges.y2[0], ranges.y2[1], plot.y + plot.h, plot.y) : null,
     ticks: { x: xt, y: yt, y2: y2t },
     cb: cb && cbTicks ? { x: plot.x + plot.w + y2Block + 16, y: plot.y, w: COLORBAR_W, h: Math.min(plot.h, 280), ticks: cbTicks, labels: cbLabels } : null,
@@ -400,8 +359,9 @@ function drawBars(ctx, s, geo, ys) {
   const { plot, xs } = geo
   const [i0, i1] = visibleSpan(s, geo, 40)
   const base = ys.type === 'log' ? plot.y + plot.h : ys.px(0)
-  const group = 0.8 / s.slots
-  const off = (s.slot - (s.slots - 1) / 2) * group
+  // a histogram's bars have a width of their own and sit on top of each other; plain bars share each slot
+  const group = s.barWidth || 0.8 / s.slots
+  const off = s.barWidth ? 0 : (s.slot - (s.slots - 1) / 2) * group
   ctx.fillStyle = s.color
   for (let i = i0; i <= i1; i++) {
     const y = s.y[i]
@@ -414,9 +374,16 @@ function drawBars(ctx, s, geo, ys) {
   }
 }
 
-function drawSeries(ctx, chart, s, geo) {
+function drawSeries(ctx, chart, s, geo, env) {
   const ys = s.axis === 'y2' ? geo.y2s : geo.ys
   ctx.globalAlpha = s.alpha
+  if (s.mode === 'box' || s.mode === 'violin' || s.mode === 'heatmap') {
+    if (s.mode === 'box') drawBox(ctx, s, geo, ys)
+    else if (s.mode === 'violin') drawViolin(ctx, s, geo, ys)
+    else drawHeatmap(ctx, s, geo, ys, env)
+    ctx.globalAlpha = 1
+    return
+  }
   if (s.mode === 'bars') {
     drawBars(ctx, s, geo, ys)
     ctx.globalAlpha = 1
@@ -569,9 +536,40 @@ const xText = (chart, v) =>
       ? (chart.x.labels?.[Math.round(v)] ?? '')
       : fmtNum(v)
 
+const rangeText = (center, step) => `${fmtNum(center - step / 2)} to ${fmtNum(center + step / 2)}`
+
+// Hovering a heatmap: outline the cell under the cursor and say what it holds.
+function drawCellHover(ctx, env, chart, geo, hover) {
+  const s = chart.series[0]
+  const { xs, ys } = geo
+  const cell = heatmapCellAt(s, xs.val(hover.x), ys.val(hover.y))
+  if (!cell) return
+  const g = s.grid
+  const xa = xs.px(g.xs[cell.c] - g.dx / 2)
+  const xb = xs.px(g.xs[cell.c] + g.dx / 2)
+  const ya = ys.px(g.ys[cell.r] - g.dy / 2)
+  const yb = ys.px(g.ys[cell.r] + g.dy / 2)
+  ctx.save()
+  ctx.strokeStyle = chart.theme === 'Dark' ? '#ffffff' : chart.colors.font
+  ctx.lineWidth = 1.5
+  ctx.strokeRect(Math.min(xa, xb), Math.min(ya, yb), Math.abs(xb - xa), Math.abs(yb - ya))
+  ctx.restore()
+  const value = { text: `${g.zName || 'value'}: ${fmtNum(cell.v)}` }
+  const rows = g.xLabels
+    ? [value]
+    : [
+        { text: `${chart.x.title || 'x'}: ${rangeText(g.xs[cell.c], g.dx)}` },
+        { text: `${chart.y.title || 'y'}: ${rangeText(g.ys[cell.r], g.dy)}` },
+        value,
+      ]
+  const head = g.xLabels ? `${g.yLabels?.[cell.r] ?? ''} \u00d7 ${g.xLabels[cell.c]}` : ''
+  drawCard(ctx, env, chart.colors, geo.plot, hover.x, hover.y, head, rows)
+}
+
 function drawHover(ctx, env, chart, geo, hover) {
   const { plot, xs } = geo
   if (!hover || hover.x < plot.x || hover.x > plot.x + plot.w || hover.y < plot.y || hover.y > plot.y + plot.h) return
+  if (chart.hover === 'cell') return drawCellHover(ctx, env, chart, geo, hover)
   const found = findHover(chart.series, xs, hover.x)
   if (!found) return
   const c = chart.colors
@@ -585,7 +583,14 @@ function drawHover(ctx, env, chart, geo, hover) {
   ctx.lineTo(Math.round(hx) + 0.5, plot.y + plot.h)
   ctx.stroke()
   ctx.restore()
+  const rows = []
   for (const { series: s, i } of found.rows) {
+    if (s.readout) {
+      // a box or violin lists its statistics under its name
+      rows.push({ color: s.color, text: s.name })
+      for (const [name, value] of s.readout) rows.push({ text: `${name}: ${fmtNum(value)}`, muted: false })
+      continue
+    }
     const ys = s.axis === 'y2' ? geo.y2s : geo.ys
     ctx.fillStyle = s.color
     ctx.strokeStyle = c.paper
@@ -594,33 +599,10 @@ function drawHover(ctx, env, chart, geo, hover) {
     ctx.arc(xs.px(s.x[i]), ys.px(s.y[i]), 4, 0, 2 * Math.PI)
     ctx.fill()
     ctx.stroke()
+    rows.push({ color: s.color, text: `${s.name}: ${fmtNum(s.y[i])}` })
   }
-  // readout card
-  const head = xText(chart, found.x)
-  const rows = found.rows.map(({ series: s, i }) => ({ color: s.color, text: `${s.name}: ${fmtNum(s.y[i])}` }))
-  ctx.font = fontOf(env, TICK)
-  const w = Math.max(ctx.measureText(head).width, ...rows.map((r) => ctx.measureText(r.text).width + 16)) + 20
-  const h = 12 + 18 + rows.length * 17
-  let x = hx + 14
-  if (x + w > plot.x + plot.w) x = hx - 14 - w
-  x = Math.max(plot.x, x)
-  const y = Math.min(Math.max(plot.y, hover.y - h / 2), plot.y + plot.h - h)
-  ctx.fillStyle = c.paper
-  ctx.strokeStyle = c.grid
-  ctx.lineWidth = 1
-  ctx.beginPath()
-  ctx.roundRect(x + 0.5, y + 0.5, w, h, 6)
-  ctx.fill()
-  ctx.stroke()
-  label(ctx, env, head, x + 10, y + 16, { color: c.muted, weight: 600 })
-  rows.forEach((r, k) => {
-    const cy = y + 16 + 19 + k * 17
-    ctx.fillStyle = r.color
-    ctx.beginPath()
-    ctx.arc(x + 14, cy, 4, 0, 2 * Math.PI)
-    ctx.fill()
-    label(ctx, env, r.text, x + 26, cy, { color: c.font })
-  })
+  // groups of boxes or violins have no single x value to show above the rows
+  drawCard(ctx, env, chart.colors, geo.plot, hx, hover.y, chart.series.some((s) => s.readout) ? '' : xText(chart, found.x), rows)
 }
 
 /**
@@ -636,6 +618,7 @@ function drawHover(ctx, env, chart, geo, hover) {
  * @returns the plot rectangle and axis scales (for hit-testing), or null when the canvas is too small
  */
 export function drawBase(ctx, chart, w, h, view, env) {
+  if (chart.kind === 'matrix') return drawMatrixBase(ctx, chart, w, h, env)
   const c = chart.colors
   ctx.fillStyle = c.paper
   ctx.fillRect(0, 0, w, h)
@@ -647,7 +630,7 @@ export function drawBase(ctx, chart, w, h, view, env) {
   ctx.beginPath()
   ctx.rect(geo.plot.x, geo.plot.y, geo.plot.w, geo.plot.h)
   ctx.clip()
-  for (const s of chart.series) drawSeries(ctx, chart, s, geo)
+  for (const s of chart.series) drawSeries(ctx, chart, s, geo, env)
   ctx.restore()
   drawColorbar(ctx, env, chart, geo)
   drawLegend(ctx, env, chart, geo)
@@ -737,6 +720,7 @@ function drawZoomBox(ctx, chart, geo, box) {
  */
 export function drawOverlay(ctx, chart, geo, ui, env) {
   if (!geo) return
+  if (geo.matrix) return drawMatrixHover(ctx, env, chart, geo, ui.hover)
   if (ui.box) drawZoomBox(ctx, chart, geo, ui.box)
   else drawHover(ctx, env, chart, geo, ui.hover)
 }

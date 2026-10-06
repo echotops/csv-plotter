@@ -27,7 +27,7 @@ npm run build    # static site in dist/ — host anywhere, or open via any stati
 - **Filters**: moving average, median, Gaussian, exponential, Savitzky–Golay, Butterworth low/high-pass (cutoff in Hz, sample rate taken from the X column), Hampel despike.
 - Normalization, log axes, axis limits, light/dark theme (the plot cross-fades with the page), PNG export (the **PNG** button above the plot).
 - **Plot interaction** (Line, Scatter, Line + markers, Step, Area, Bar): drag a box to zoom (a nearly flat or nearly upright box zooms only that way; or switch to **Pan**, or hold Shift to pan); drag along an axis to pan just that axis; scroll to zoom about the cursor (over an axis, only that axis; with Shift, only X); double-click or **Reset zoom** to go back. **← / →** step back and forward through the views you have been to; a new zoom or pan after stepping back replaces the views ahead. The zoom survives filter, color and theme changes. The hover readout lists every trace at the nearest X.
-- **LaTeX** in the title and axis labels: only what is between dollar signs is typeset, e.g. `Velocity ($\frac{m}{s}$)` keeps "Velocity" in the normal font. For the LaTeX font on words, put them inside the math: `$\text{words}$`. (The seven Plotly-drawn plot types still set the whole label in LaTeX when it contains any math.) MathJax is fetched from jsdelivr the first time a label uses it (offline, the label shows as plain text).
+- **LaTeX** in the title and axis labels: only what is between dollar signs is typeset, e.g. `Velocity ($\frac{m}{s}$)` keeps "Velocity" in the normal font. For the LaTeX font on words, put them inside the math: `$\text{words}$`.  MathJax is fetched from jsdelivr the first time a label uses it (offline, the label shows as plain text).
 - **Plot bar**: chips for anything altering the data (filter, normalization, log axes, limits) — click one to remove it — plus **Reset zoom** (double-clicking the plot does the same). A dotted crosshair follows the cursor next to the hover readout.
 - If a combination can't be drawn (say a half-typed formula), the last good plot stays dimmed under an explanatory banner instead of going blank.
 - **Layout**: drag the divider to resize the controls (double-click resets), click its arrow or press `[` to collapse them; below 900 px wide they become a slide-over drawer (☰ Controls). Widths are remembered.
@@ -44,10 +44,10 @@ npm run build    # static site in dist/ — host anywhere, or open via any stati
 | `src/lib/list.js`, `src/lib/chips.js` | trace reordering; the removable "active filter" chips |
 | `src/lib/filters.js` | all filters; `filters.test.js` checks them against scipy output in `__fixtures__/filters.json` |
 | `src/lib/plots.js` | turns a table + options into a figure: traces + layout (no DOM, fully unit-tested) |
-| `src/plot/` | the canvas plot: `chart.js` (figure → chart spec), `draw.js` (everything painted), `ticks.js` / `axis.js` (tick choice, scales, zoom math), `hover.js`, `colormap.js`, `math.js` (LaTeX labels via MathJax) |
+| `src/plot/` | the canvas plot: `chart.js` (figure → chart spec), `draw.js` (axes, series, hover, zoom box), `ticks.js` / `axis.js` (tick choice, scales, zoom math), `hover.js`, `colormap.js`, `math.js` (LaTeX labels via MathJax) |
 | `src/lib/files.js` | folder scanning / file sources |
-| `src/components/` | React UI (controls, plot, tables). `CanvasPlot.jsx` is the interactive canvas; `PlotView.jsx` picks the canvas or Plotly |
+| `src/components/` | React UI (controls, plot, tables). `CanvasPlot.jsx` is the interactive canvas; `PlotView.jsx` is the plot bar around it |
 
-The six line-style and bar types are drawn by the canvas plot. The other seven (histogram, box, violin, ECDF, 2D histogram, correlation heatmap, scatter matrix) are still drawn by Plotly, which is only downloaded the first time one of them is shown.
+All 13 plot types are drawn by the canvas plot; there is no charting library. Box and violin statistics and the violin density curve are in `src/plot/stats.js`, the heatmap / box / violin shapes in `src/plot/shapes.js`, and the scatter matrix in `src/plot/matrix.js`.
 
 The Python desktop prototype (`../csv_explorer.py`) is kept for reference.

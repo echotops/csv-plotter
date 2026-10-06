@@ -39,7 +39,7 @@ export function nearestIndex(xs, v, sorted) {
  * @returns {{ x: number, rows: { series: object, i: number }[] } | null}
  */
 export function findHover(series, xScale, px) {
-  const shown = series.filter((s) => s.inLegend && s.x.length)
+  const shown = series.filter((s) => (s.inLegend || s.readout) && s.x.length)
   if (!shown.length) return null
   const target = xScale.val(px)
   let best = null
