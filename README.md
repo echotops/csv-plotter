@@ -30,7 +30,7 @@ npm run build    # static site in dist/ — host anywhere, or open via any stati
 - **Plot bar**: chips for anything altering the data (filter, normalization, log axes, limits) — click one to remove it — plus **Reset zoom** (double-clicking the plot does the same). A dotted crosshair follows the cursor next to the hover readout.
 - If a combination can't be drawn (say a half-typed formula), the last good plot stays dimmed under an explanatory banner instead of going blank.
 - **Layout**: drag the divider to resize the controls (double-click resets), click its arrow or press `[` to collapse them; below 900 px wide they become a slide-over drawer (☰ Controls). Widths are remembered.
-- **Shortcuts** (ignored while typing): `/` file search, `←` `→` previous/next file, `T` theme, `[` sidebar, `Esc` closes the drawer.
+- **Shortcuts** (ignored while typing): `/` file search, `T` theme, `[` sidebar, `Esc` closes the drawer.
 - Handles `,` `;` tab and `|` delimiters, quoted fields, headerless files, `#` comments, NA/blank cells, ISO / US dates. 1M rows loads and plots in about a second.
 
 ## Layout

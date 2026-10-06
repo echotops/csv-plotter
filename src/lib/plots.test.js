@@ -464,3 +464,39 @@ describe('hidden formula traces', () => {
     expect(fig.data).toHaveLength(1)
   })
 })
+
+describe('custom trace names', () => {
+  const named = (name) => ({ col: 'chamber_psi', side: 'L', name })
+
+  it('uses the name in the legend instead of the column', () => {
+    const fig = buildFigure(table, opts({ x: 'time_s', traces: [named('Chamber pressure'), tr('tank_psi')] }))
+    expect(fig.data.map((d) => d.name)).toEqual(['Chamber pressure', 'tank_psi'])
+  })
+
+  it('falls back to the column for an empty or blank name', () => {
+    for (const name of ['', '   ', undefined]) {
+      const fig = buildFigure(table, opts({ x: 'time_s', traces: [named(name)] }))
+      expect(fig.data[0].name).toBe('chamber_psi')
+    }
+  })
+
+  it('keeps the (right) suffix and applies to every plot type that has a legend entry', () => {
+    const right = buildFigure(
+      table,
+      opts({ x: 'time_s', traces: [named('P'), { col: 'tank_psi', side: 'R', name: 'Tank' }] }),
+    )
+    expect(right.data.map((d) => d.name)).toEqual(['P', 'Tank (right)'])
+    for (const kind of ['Bar', 'Histogram', 'Box', 'Violin', 'ECDF']) {
+      const fig = buildFigure(table, opts({ kind, x: 'time_s', traces: [named('Renamed')] }))
+      expect(fig.data[0].name, kind).toBe('Renamed')
+    }
+  })
+
+  it('names a formula trace too', () => {
+    const fig = buildFigure(
+      table,
+      opts({ x: 'time_s', traces: [{ col: CUSTOM, side: 'L', expr: 'chamber_psi * 2', name: 'Doubled' }] }),
+    )
+    expect(fig.data[0].name).toBe('Doubled')
+  })
+})

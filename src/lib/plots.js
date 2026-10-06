@@ -163,7 +163,7 @@ function activeTraces(table, o, notes) {
   o.traces.forEach((t, slot) => {
     if (t.hidden) return
     if (!t.col || t.col === NONE || !table.cols[t.col]) return
-    if (table.cols[t.col].kind === 'num') good.push({ slot, col: t.col, side: t.side })
+    if (table.cols[t.col].kind === 'num') good.push({ slot, col: t.col, side: t.side, name: t.name?.trim() || t.col })
     else bad.push(t.col)
   })
   if (bad.length) notes.push('skipped non-numeric: ' + [...new Set(bad)].join(', '))
@@ -301,7 +301,7 @@ function buildXY(table, o, notes) {
   const leftCols = []
   const rightCols = []
   const ext = newExtent()
-  for (const { slot, col, side } of series) {
+  for (const { slot, col, side, name } of series) {
     const right = useRight && side === 'R'
     ;(right ? rightCols : leftCols).push(col)
     const color = colorOf(o, slot)
@@ -320,7 +320,7 @@ function buildXY(table, o, notes) {
       Float64Array.from(keep, (i) => y[i]),
       o.norm,
     )
-    const label = col + (right ? ' (right)' : '')
+    const label = name + (right ? ' (right)' : '')
     let ys = yy
     if (filtering) {
       try {
@@ -457,11 +457,11 @@ function buildBar(table, o, notes) {
   }
   const pos = labels.map((_, i) => i)
   const step = Math.max(1, Math.ceil(labels.length / 30))
-  const data = series.map(({ slot, col }, j) => ({
+  const data = series.map(({ slot, name }, j) => ({
     type: 'bar',
     x: pos,
     y: normalize(heights[j], o.norm),
-    name: col,
+    name,
     opacity: o.alpha,
     marker: { color: colorOf(o, slot) },
   }))
@@ -520,7 +520,7 @@ function buildDist(table, o, notes) {
       const y = o.density ? counts.map((c) => c / (s.vals.length * size)) : counts
       data.push({
         type: 'bar',
-        name: s.col,
+        name: s.name,
         x: Array.from(y, (_, b) => lo + (b + 0.5) * size),
         y,
         width: size,
@@ -542,7 +542,7 @@ function buildDist(table, o, notes) {
           ? {
               type: 'box',
               y: v,
-              name: s.col,
+              name: s.name,
               boxpoints: v.length <= 20000 ? 'outliers' : false,
               marker: { color, size: 3 },
               line: { color },
@@ -550,7 +550,7 @@ function buildDist(table, o, notes) {
           : {
               type: 'violin',
               y: v,
-              name: s.col,
+              name: s.name,
               points: false,
               meanline: { visible: true },
               line: { color },
@@ -570,7 +570,7 @@ function buildDist(table, o, notes) {
         mode: 'lines',
         x: take(sorted, idx),
         y: take(ys, idx),
-        name: s.col,
+        name: s.name,
         line: { shape: 'hv', color: colorOf(o, s.slot), width: o.lw },
       })
     }

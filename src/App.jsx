@@ -91,13 +91,23 @@ export default function App() {
   }, [sources])
   const fileInput = useRef(null)
   const patch = useCallback((p) => setOpts((o) => ({ ...o, ...p })), [])
+  const firstTheme = useRef(true)
   useEffect(() => {
-    document.documentElement.dataset.theme = opts.theme.toLowerCase()
+    const root = document.documentElement
+    root.dataset.theme = opts.theme.toLowerCase()
+    // fade between themes, but not on page load
+    let timer
+    if (firstTheme.current) firstTheme.current = false
+    else {
+      root.classList.add('theme-fade')
+      timer = setTimeout(() => root.classList.remove('theme-fade'), 250)
+    }
     try {
       localStorage.setItem(THEME_KEY, opts.theme)
     } catch {
       // storage can be blocked (private windows, strict settings) — the theme just won't be remembered
     }
+    return () => clearTimeout(timer)
   }, [opts.theme])
   useEffect(() => {
     try {
@@ -186,25 +196,18 @@ export default function App() {
       fp1 = Number((currentFs() / (name.startsWith('Low') ? 20 : 200)).toPrecision(3))
     patch({ filter: name, fp1, fp2: spec.p2?.def ?? opts.fp2 })
   }
-  const step = (dir) => {
-    const at = sources.findIndex((s) => s.id === selected)
-    const next = sources[at + dir]
-    if (next) setSelected(next.id)
-  }
-  // Keyboard: / file search, T theme, [ sidebar, ← → previous / next file, Esc closes the drawer.
+  // Keyboard: / file search, T theme, [ sidebar, Esc closes the drawer.
   const keys = useRef()
   useEffect(() => {
-    keys.current = { step, patch, opts }
+    keys.current = { patch, opts }
   })
   useEffect(() => {
     const onKey = (e) => {
       if (e.metaKey || e.ctrlKey || e.altKey || typingTarget(e.target)) return
-      const { step, patch, opts } = keys.current
+      const { patch, opts } = keys.current
       if (e.key === '/') setFileOpen(true)
       else if (e.key === 't' || e.key === 'T') patch({ theme: opts.theme === 'Dark' ? 'Light' : 'Dark' })
       else if (e.key === '[') setSidebar((s) => ({ ...s, collapsed: !s.collapsed }))
-      else if (e.key === 'ArrowLeft') step(-1)
-      else if (e.key === 'ArrowRight') step(1)
       else if (e.key === 'Escape') setDrawer(false)
       else return
       e.preventDefault()
@@ -230,7 +233,9 @@ export default function App() {
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', up)
   }
-  const dopts = useDebounced(opts, 120)
+  // the theme is applied at once so the plot fades together with the rest of the page, not 120 ms later
+  const debounced = useDebounced(opts, 120)
+  const dopts = useMemo(() => ({ ...debounced, theme: opts.theme }), [debounced, opts.theme])
   const figure = useMemo(() => {
     try {
       return buildFigure(table, dopts)
@@ -346,7 +351,7 @@ export default function App() {
 
       <footer className="status" title={status}>
         <span className="status-text">{status}</span>
-        <span className="shortcuts">/ files · ← → switch · T theme · [ sidebar</span>
+        <span className="shortcuts">/ files · T theme · [ sidebar</span>
       </footer>
       {dragging && <div className="drop-overlay">Drop CSV files to add them</div>}
     </div>

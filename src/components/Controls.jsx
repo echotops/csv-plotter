@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
+import { applyCompletion, asRef, completionsAt } from '../lib/autocomplete'
 import { normalizeColor } from '../lib/color'
 import { moveItem } from '../lib/list'
 import { checkExpression, FUNCTION_NAMES } from '../lib/expression'
@@ -100,29 +101,100 @@ function ColorInput({ value, fallback, onChange }) {
   )
 }
 
-// Text box for a formula, with the parser's complaint shown underneath as you type.
+// Text box for a formula, with the parser's complaint shown underneath as you type. Typing a word offers
+// matching columns and functions; Tab (or Enter) takes the highlighted one, ↑/↓ move, Esc dismisses.
 function FormulaInput({ value, onChange, table, placeholder }) {
   const error = checkExpression(table, value)
+  const input = useRef(null)
+  const pendingCaret = useRef(null)
+  const [caret, setCaret] = useState(0)
+  const [pick, setPick] = useState(0)
+  const [dismissed, setDismissed] = useState(false)
+  const columns = table ? table.names.filter((n) => table.cols[n].kind !== 'str') : []
+  const completion = dismissed ? null : completionsAt(value, caret, columns)
+  const active = completion ? Math.min(pick, completion.items.length - 1) : 0
+
+  // after taking a suggestion the caret has to land behind it, once React has put the new text in the box
+  useLayoutEffect(() => {
+    if (pendingCaret.current === null || !input.current) return
+    input.current.setSelectionRange(pendingCaret.current, pendingCaret.current)
+    pendingCaret.current = null
+  })
+
+  const sync = (el) => {
+    setCaret(el.selectionStart ?? el.value.length)
+    setDismissed(false)
+  }
+  const accept = (item) => {
+    const next = applyCompletion(value, completion, item)
+    pendingCaret.current = next.caret
+    setCaret(next.caret)
+    setPick(0)
+    onChange(next.text)
+  }
 
   return (
     <div className="formula-block">
       <input
+        ref={input}
         type="text"
         className={error ? 'formula input-error' : 'formula'}
         value={value}
         placeholder={placeholder}
         spellCheck={false}
-        onChange={(e) => onChange(e.target.value)}
+        autoComplete="off"
+        role="combobox"
+        aria-expanded={Boolean(completion)}
+        aria-autocomplete="list"
+        onChange={(e) => {
+          sync(e.target)
+          setPick(0)
+          onChange(e.target.value)
+        }}
+        onSelect={(e) => setCaret(e.target.selectionStart ?? 0)}
+        onBlur={() => setDismissed(true)}
+        onKeyDown={(e) => {
+          if (!completion) return
+          if (e.key === 'Tab' || e.key === 'Enter') {
+            if (e.shiftKey) return
+            e.preventDefault()
+            accept(completion.items[active])
+          } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault()
+            const n = completion.items.length
+            setPick((active + (e.key === 'ArrowDown' ? 1 : n - 1)) % n)
+          } else if (e.key === 'Escape') {
+            e.preventDefault()
+            setDismissed(true)
+          }
+        }}
       />
+      {completion && (
+        <ul className="suggest" role="listbox">
+          {completion.items.map((item, k) => (
+            <li
+              key={item.label}
+              role="option"
+              aria-selected={k === active}
+              className={k === active ? 'on' : undefined}
+              // mousedown, not click: the box must keep focus or its blur handler would close the list first
+              onMouseDown={(e) => {
+                e.preventDefault()
+                accept(item)
+              }}
+            >
+              <span>{item.label}</span>
+              <span className="muted">{item.kind}</span>
+            </li>
+          ))}
+        </ul>
+      )}
       {error && <div className="formula-error">{error}</div>}
     </div>
   )
 }
 
 const numericNames = (t) => (t ? t.names.filter((n) => t.cols[n].kind === 'num') : [])
-
-// Names that aren't plain identifiers have to be bracketed inside a formula.
-const asRef = (name) => (/^[A-Za-z_]\w*$/.test(name) ? name : `[${name}]`)
 
 function nextTraceColumn(opts, table) {
   if (!table) return NONE
@@ -238,7 +310,7 @@ function TraceRow({
         <button
           className={open ? 'btn small icon open' : 'btn small icon'}
           aria-expanded={open}
-          title="Color options"
+          title="Name and color"
           onClick={() => onChange({ open: !open })}
         >
           ▾
@@ -249,8 +321,21 @@ function TraceRow({
       </div>
       {open && (
         <div className="trace-more">
-          <span className="muted">Color</span>
-          <ColorInput value={t.color} fallback={fallback} onChange={(c) => onChange({ color: c })} />
+          <label className="trace-more-row">
+            <span className="muted">Name</span>
+            <input
+              type="text"
+              className="trace-name"
+              value={t.name ?? ''}
+              placeholder={t.col === CUSTOM ? t.expr.trim() || 'legend name' : t.col}
+              title="Legend name for this trace. Clear it to go back to the column name."
+              onChange={(e) => onChange({ name: e.target.value })}
+            />
+          </label>
+          <div className="trace-more-row">
+            <span className="muted">Color</span>
+            <ColorInput value={t.color} fallback={fallback} onChange={(c) => onChange({ color: c })} />
+          </div>
         </div>
       )}
       {t.col === CUSTOM && (
